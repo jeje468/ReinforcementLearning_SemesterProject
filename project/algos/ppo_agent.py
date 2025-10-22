@@ -76,7 +76,21 @@ class PPOAgent(BaseAgent):
         # You can use the self.policy to get values for self.states and self.next_states.
         # Initialize gae = 0, and iterate backwards over timesteps.
         # Store "gae + value_t" in a list, then reverse it at the end.
-        raise NotImplementedError("Implement the return computation using GAE.")
+        returns = []
+        with torch.no_grad():
+            _, values = self.policy(self.states)
+            _, next_values = self.policy(self.next_states)
+            values = values.squeeze()
+            next_values = next_values.squeeze()
+        gaes = torch.zeros(1)
+        timesteps = len(self.rewards)
+        for t in range(timesteps-1, -1, -1):
+            deltas = self.rewards[t] + self.gamma * next_values[t] * (1-self.dones[t]) - values[t]
+            gaes = deltas + self.gamma*self.tau*(1-self.dones[t])*gaes
+            returns.append(gaes + values[t])
+
+        return torch.Tensor(list(reversed(returns)))
+
         # ===== YOUR CODE ENDS HERE =====
 
     def ppo_epoch(self):
@@ -91,7 +105,18 @@ class PPOAgent(BaseAgent):
         # 3. While enough samples remain, draw a minibatch (size self.batch_size)
         # 4. Call self.ppo_update() with the selected minibatch
         # 5. Remove those indices from the pool
-        raise NotImplementedError("Implement minibatch sampling and PPO update iteration.")
+        indices = list(range(len(self.states)))
+        returns = self.compute_returns()
+        while len(indices) >= self.batch_size:
+            batch_indices = np.random.choice(indices, self.batch_size,
+                    replace=False)
+
+            self.ppo_update(self.states[batch_indices], self.actions[batch_indices],
+                self.rewards[batch_indices], self.next_states[batch_indices],
+                self.dones[batch_indices], self.action_log_probs[batch_indices],
+                returns[batch_indices])
+
+            indices = [i for i in indices if i not in batch_indices]
         # ===== YOUR CODE ENDS HERE =====
 
     def ppo_update(self, states, actions, rewards, next_states, dones, old_log_probs, targets):
@@ -114,7 +139,27 @@ class PPOAgent(BaseAgent):
         # 4. Compute policy objective: min(ratio * adv, clipped_ratio * adv)
         # 5. Compute value loss and entropy
         # 6. Combine total loss and perform optimizer step
-        raise NotImplementedError("Implement the PPO clipped objective and optimization step.")
+        action_dists, values = self.policy(states)
+        values = values.squeeze()
+        new_action_probs = action_dists.log_prob(actions)
+        ratio = torch.exp(new_action_probs - old_log_probs)
+        clipped_ratio = torch.clamp(ratio, 1-self.clip, 1+self.clip)
+
+        advantages = targets - values
+        advantages -= advantages.mean()
+        advantages /= advantages.std()+1e-8
+        advantages = advantages.detach()
+        policy_objective = -torch.min(ratio*advantages, clipped_ratio*advantages)
+
+        value_loss = F.smooth_l1_loss(values, targets, reduction="mean")
+
+        policy_objective = policy_objective.mean()
+        entropy = action_dists.entropy().mean()
+        loss = policy_objective + 0.5*value_loss - 0.01*entropy
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
         # ===== YOUR CODE ENDS HERE =====
 
     def get_action(self, observation, evaluation=False):

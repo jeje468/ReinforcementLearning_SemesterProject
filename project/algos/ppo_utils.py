@@ -45,11 +45,12 @@ class Policy(torch.nn.Module):
         # ===== YOUR CODE STARTS HERE =====
         # Initialize self.actor_logstd using the environment’s action range:
         # stds = (env.action_space.high - env.action_space.low)
-        # self.actor_logstd = np.log(stds)
-        # Also store a copy (self.actor_logstd_dist) for later scaling.
+        # convert to a torch tensor so tensor ops (expand, exp) work in forward
         stds = (env.action_space.high - env.action_space.low)
-        self.actor_logstd = np.log(stds)
-        self.actor_logstd_dist = self.actor_logstd.clone().detach()
+        logstd_np = np.log(stds)
+        self.actor_logstd = torch.tensor(logstd_np, dtype=torch.float32)
+        # keep a copy for later scaling
+        self.actor_logstd_dist = self.actor_logstd.clone()
         # ===== YOUR CODE ENDS HERE =====
 
     def set_logstd_ratio(self, ratio):
@@ -60,14 +61,15 @@ class Policy(torch.nn.Module):
         # ===== YOUR CODE ENDS HERE =====
 
     def init_weights(self):
-        """Initialize network weights."""
         # ===== YOUR CODE STARTS HERE =====
         # Iterate over self.modules() and initialize torch.nn.Linear layers:
         #   torch.nn.init.normal_(m.weight, 0, 1e-1)
         #   torch.nn.init.zeros_(m.bias)
         for m in self.modules():
-            torch.nn.init.normal_(m.weight, 0, 1e-1)
-            torch.nn.init.zeros_(m.bias)
+            if isinstance(m, torch.nn.Linear):
+                torch.nn.init.normal_(m.weight, 0, 1e-1)
+                torch.nn.init.zeros_(m.bias)
+        # ===== YOUR CODE ENDS HERE =====
         # ===== YOUR CODE ENDS HERE =====
 
     def forward(self, x):
@@ -97,10 +99,13 @@ class Policy(torch.nn.Module):
         x_c = F.relu(x_c)
         x_c = self.fc2_c(x_c)
         x_c = F.relu(x_c)
-        x_c = self.fc3_c(x_c)
-
         logstd = self.actor_logstd
-        action_logstd = logstd.expand_as(action_mean)
+        # make sure logstd has compatible dimensions with action_mean
+        action_logstd = logstd
+        if action_mean.dim() > logstd.dim():
+            for _ in range(action_mean.dim() - logstd.dim()):
+                action_logstd = action_logstd.unsqueeze(0)
+        action_logstd = action_logstd.expand_as(action_mean)
         action_std = torch.exp(action_logstd)
         action_dist = Independent(Normal(action_mean, action_std), 1)
 
