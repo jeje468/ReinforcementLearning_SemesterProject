@@ -49,7 +49,6 @@ class Policy(torch.nn.Module):
         stds = (env.action_space.high - env.action_space.low)
         logstd_np = np.log(stds)
         self.actor_logstd = torch.tensor(logstd_np, dtype=torch.float32)
-        # keep a copy for later scaling
         self.actor_logstd_dist = self.actor_logstd.clone()
         # ===== YOUR CODE ENDS HERE =====
 
@@ -89,16 +88,13 @@ class Policy(torch.nn.Module):
         # 3. Compute the action’s log standard deviation (expand to match μ shape).
         # 4. Compute action standard deviation via torch.exp.
         # 5. Create and return an Independent(Normal(mean, std), 1) distribution and the critic value.
-        x_a = self.fc1_a(x)
-        x_a = F.relu(x_a)
-        x_a = self.fc2_a(x_a)
-        x_a = F.relu(x_a)
-        action_mean = self.fc3_a(x_a)
+        a = F.relu(self.fc1_a(x))
+        a = F.relu(self.fc2_a(a))
+        action_mean = self.fc3_a(a)
 
-        x_c = self.fc1_c(x)
-        x_c = F.relu(x_c)
-        x_c = self.fc2_c(x_c)
-        x_c = F.relu(x_c)
+        c = F.relu(self.fc1_c(x))
+        c = F.relu(self.fc2_c(c))
+        x_c = self.fc3_c(c)
         logstd = self.actor_logstd
         # make sure logstd has compatible dimensions with action_mean
         action_logstd = logstd

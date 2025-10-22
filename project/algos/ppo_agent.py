@@ -82,14 +82,16 @@ class PPOAgent(BaseAgent):
             _, next_values = self.policy(self.next_states)
             values = values.squeeze()
             next_values = next_values.squeeze()
-        gaes = torch.zeros(1)
+        gae = torch.tensor(0.0, device=self.device)
         timesteps = len(self.rewards)
         for t in range(timesteps-1, -1, -1):
-            deltas = self.rewards[t] + self.gamma * next_values[t] * (1-self.dones[t]) - values[t]
-            gaes = deltas + self.gamma*self.tau*(1-self.dones[t])*gaes
-            returns.append(gaes + values[t])
+            delta = self.rewards[t] + self.gamma * next_values[t] * (1 - self.dones[t]) - values[t]
+            gae = delta + self.gamma * self.tau * (1 - self.dones[t]) * gae
+            returns.append(gae + values[t])
 
-        return torch.Tensor(list(reversed(returns)))
+        returns = list(reversed(returns))
+        returns = torch.stack(returns).squeeze()
+        return returns
 
         # ===== YOUR CODE ENDS HERE =====
 
